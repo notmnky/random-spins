@@ -1,0 +1,364 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Random Name Selector</title>
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+      font-family: 'Helvetica Neue', Helvetica, Arial, sans-serif;
+      background: #000;
+      color: #fff;
+      min-height: 100vh;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      padding: 2rem 1rem;
+    }
+    h1 { font-weight: 200; letter-spacing: 0.3em; text-transform: uppercase; font-size: 1.5rem; margin-bottom: 2rem; }
+    .screen { width: 100%; max-width: 500px; display: none; flex-direction: column; align-items: center; gap: 1.5rem; }
+    .screen.active { display: flex; }
+    .mode-btn {
+      width: 100%;
+      padding: 1rem;
+      border: 2px solid #fff;
+      background: transparent;
+      color: #fff;
+      font-size: 1rem;
+      font-weight: 400;
+      letter-spacing: 0.1em;
+      text-transform: uppercase;
+      cursor: pointer;
+      transition: all 0.2s;
+    }
+    .mode-btn:hover, .mode-btn:focus { background: #fff; color: #000; }
+    .wheel-container { position: relative; width: 400px; height: 400px; }
+    .wheel { width: 100%; height: 100%; transform-origin: center; transition: transform 4s cubic-bezier(0.17, 0.67, 0.12, 0.99); }
+    .wheel svg { width: 100%; height: 100%; }
+    .pointer { position: absolute; top: 50%; right: -20px; transform: translateY(-50%); width: 0; height: 0; border-top: 16px solid transparent; border-bottom: 16px solid transparent; border-right: 28px solid #fff; z-index: 10; }
+    .spin-btn { padding: 1rem 3rem; border: 2px solid #fff; background: transparent; color: #fff; font-size: 1rem; font-weight: 400; letter-spacing: 0.1em; text-transform: uppercase; cursor: pointer; transition: all 0.2s; }
+    .spin-btn:hover:not(:disabled), .spin-btn:focus:not(:disabled) { background: #fff; color: #000; }
+    .spin-btn:disabled { opacity: 0.4; cursor: not-allowed; }
+    .input-group { width: 100%; display: flex; gap: 0.5rem; }
+    .input-group input { flex: 1; padding: 0.75rem; border: 2px solid #fff; background: transparent; color: #fff; font-size: 1rem; font-family: inherit; }
+    .input-group input::placeholder { color: rgba(255,255,255,0.5); }
+    .input-group button { padding: 0.75rem 1.5rem; border: 2px solid #fff; background: transparent; color: #fff; font-size: 1rem; font-family: inherit; cursor: pointer; transition: all 0.2s; }
+    .input-group button:hover { background: #fff; color: #000; }
+    .items-list { width: 100%; max-height: 200px; overflow-y: auto; border: 2px solid #fff; padding: 0.5rem; }
+    .item-row { display: flex; justify-content: space-between; align-items: center; padding: 0.5rem 0; border-bottom: 1px solid rgba(255,255,255,0.2); }
+    .item-row:last-child { border-bottom: none; }
+    .item-text { font-weight: 300; }
+    .remove-btn { padding: 0.25rem 0.75rem; border: 1px solid #fff; background: transparent; color: #fff; font-size: 0.75rem; cursor: pointer; }
+    .remove-btn:hover { background: #fff; color: #000; }
+    .result { font-size: 2rem; font-weight: 200; letter-spacing: 0.05em; text-align: center; min-height: 3rem; }
+    .back-btn { margin-top: 1rem; padding: 0.75rem 2rem; border: 2px solid #fff; background: transparent; color: #fff; font-size: 0.85rem; letter-spacing: 0.1em; text-transform: uppercase; cursor: pointer; transition: all 0.2s; }
+    .back-btn:hover { background: #fff; color: #000; }
+    .empty-state { text-align: center; color: rgba(255,255,255,0.4); padding: 2rem; font-weight: 300; }
+    @media (max-width: 480px) { .wheel-container { width: 320px; height: 320px; } }
+  </style>
+</head>
+<body>
+  <h1>Random Selector</h1>
+
+  <!-- Mode Selection Screen -->
+  <div id="mode-screen" class="screen active">
+    <button class="mode-btn" data-mode="duplicate">Duplicate Mode — Unlimited Spins</button>
+    <button class="mode-btn" data-mode="unique">Unique Mode — Remove After Spin</button>
+  </div>
+
+  <!-- Configuration Screen -->
+  <div id="config-screen" class="screen">
+    <div class="input-group">
+      <input type="text" id="name-input" placeholder="Enter name / option">
+      <button id="add-btn">Add</button>
+    </div>
+    <div class="items-list" id="items-list"></div>
+    <div style="display: flex; gap: 0.5rem; width: 100%;">
+      <button class="spin-btn" id="start-spin-btn" disabled>Spin the Wheel</button>
+      <button class="spin-btn" id="clear-all-btn" style="background: transparent; border-color: #fff; color: #fff;">Remove All</button>
+    </div>
+    <button class="back-btn" id="back-to-mode">Back to Modes</button>
+  </div>
+
+  <!-- Wheel Screen -->
+  <div id="wheel-screen" class="screen">
+    <div class="wheel-container">
+      <div class="wheel" id="wheel"></div>
+      <div class="pointer"></div>
+    </div>
+    <button class="spin-btn" id="spin-btn" disabled>Spin</button>
+    <div class="result" id="result"></div>
+    <button class="back-btn" id="back-to-config">Back to List</button>
+  </div>
+
+  <script>
+    // State
+    let mode = 'duplicate';
+    let items = [];
+    let currentAngle = 0;
+    let spinning = false;
+    let removedItems = [];
+    let lastSelectedIndex = null;
+
+    // Elements
+    const modeScreen = document.getElementById('mode-screen');
+    const configScreen = document.getElementById('config-screen');
+    const wheelScreen = document.getElementById('wheel-screen');
+    const wheel = document.getElementById('wheel');
+    const itemsList = document.getElementById('items-list');
+    const nameInput = document.getElementById('name-input');
+    const addBtn = document.getElementById('add-btn');
+    const startSpinBtn = document.getElementById('start-spin-btn');
+    const spinBtn = document.getElementById('spin-btn');
+    const resultEl = document.getElementById('result');
+    const backToMode = document.getElementById('back-to-mode');
+    const backToConfig = document.getElementById('back-to-config');
+
+    // Mode selection
+    document.querySelectorAll('.mode-btn').forEach(btn => {
+      btn.addEventListener('click', () => {
+        mode = btn.dataset.mode;
+        items = [];
+        removedItems = [];
+        lastSelectedIndex = null;
+        renderItems();
+        showScreen(configScreen);
+      });
+    });
+
+    // Add item
+    function addItem() {
+      const text = nameInput.value.trim();
+      if (!text) return;
+      items.push(text);
+      nameInput.value = '';
+      renderItems();
+      updateStartButton();
+    }
+    addBtn.addEventListener('click', addItem);
+    nameInput.addEventListener('keydown', e => e.key === 'Enter' && addItem());
+
+    // Render items list
+    function renderItems() {
+      itemsList.innerHTML = '';
+      if (items.length === 0) {
+        itemsList.innerHTML = '<div class="empty-state">No options added yet</div>';
+        return;
+      }
+      items.forEach((item, i) => {
+        const row = document.createElement('div');
+        row.className = 'item-row';
+        row.innerHTML = `<span class="item-text">${escapeHtml(item)}</span><button class="remove-btn" data-index="${i}">Remove</button>`;
+        itemsList.appendChild(row);
+      });
+      itemsList.querySelectorAll('.remove-btn').forEach(btn => {
+        btn.addEventListener('click', () => {
+          items.splice(parseInt(btn.dataset.index), 1);
+          renderItems();
+          updateStartButton();
+        });
+      });
+    }
+
+    function updateStartButton() {
+      startSpinBtn.disabled = items.length < 2;
+    }
+
+    // Build wheel with SVG
+    function buildWheel() {
+      const count = items.length;
+      if (count === 0) {
+        wheel.innerHTML = '';
+        return;
+      }
+
+      const radius = 200;
+      const center = 200;
+      const anglePer = 360 / count;
+
+      let svg = `<svg viewBox="0 0 400 400" xmlns="http://www.w3.org/2000/svg">`;
+
+      items.forEach((item, i) => {
+        const startAngle = i * anglePer;
+        const endAngle = (i + 1) * anglePer;
+        const midAngle = (startAngle + endAngle) / 2;
+
+        // Convert to radians
+        const startRad = (startAngle - 90) * Math.PI / 180;
+        const endRad = (endAngle - 90) * Math.PI / 180;
+
+        // Path for pie slice
+        const x1 = center + radius * Math.cos(startRad);
+        const y1 = center + radius * Math.sin(startRad);
+        const x2 = center + radius * Math.cos(endRad);
+        const y2 = center + radius * Math.sin(endRad);
+
+        const largeArc = anglePer > 180 ? 1 : 0;
+
+        // Alternate fill for contrast
+        const fill = i % 2 === 0 ? '#fff' : '#333';
+        const textColor = i % 2 === 0 ? '#000' : '#fff';
+
+        svg += `
+          <path
+            d="M ${center} ${center} L ${x1} ${y1} A ${radius} ${radius} 0 ${largeArc} 1 ${x2} ${y2} Z"
+            fill="${fill}"
+            stroke="#fff"
+            stroke-width="2"
+          />
+        `;
+
+        // Text position (at 65% radius)
+        const textRadius = radius * 0.65;
+        const textRad = (midAngle - 90) * Math.PI / 180;
+        const tx = center + textRadius * Math.cos(textRad);
+        const ty = center + textRadius * Math.sin(textRad);
+
+        svg += `
+          <text
+            x="${tx}"
+            y="${ty}"
+            text-anchor="middle"
+            dominant-baseline="middle"
+            fill="${textColor}"
+            font-family="Helvetica Neue, Helvetica, Arial, sans-serif"
+            font-size="14"
+            font-weight="300"
+            letter-spacing="0.5px"
+            transform="rotate(${midAngle - 90} ${tx} ${ty})"
+          >${escapeHtml(item)}</text>
+        `;
+      });
+
+      // Center circle to cover middle
+      svg += `<circle cx="${center}" cy="${center}" r="20" fill="#000" stroke="#fff" stroke-width="2" />`;
+      svg += `</svg>`;
+
+      wheel.innerHTML = svg;
+    }
+
+    // Spin logic
+    function spin() {
+      if (spinning || items.length === 0) return;
+      spinning = true;
+      spinBtn.disabled = true;
+      resultEl.textContent = '';
+
+      // In unique mode, remove the previously selected item before spinning
+      if (mode === 'unique' && lastSelectedIndex !== null && lastSelectedIndex < items.length) {
+        removedItems.push(items[lastSelectedIndex]);
+        items.splice(lastSelectedIndex, 1);
+        buildWheel();
+        if (items.length === 0) {
+          spinBtn.disabled = true;
+          resultEl.textContent = 'List exhausted';
+          spinning = false;
+          lastSelectedIndex = null;
+          return;
+        }
+      }
+
+      const count = items.length;
+      const anglePer = 360 / count;
+      const targetIndex = Math.floor(Math.random() * count);
+
+      // Target segment's text center in SVG coordinates (0°=right, 90°=down, -90°=up/12 o'clock)
+      // First segment starts at -90° (12 o'clock), center at -90 + anglePer/2
+      const targetCenterSVG = -90 + targetIndex * anglePer + anglePer / 2;
+
+      // Target visual rotation (CSS clockwise) to bring this segment to pointer at visual 0° (right)
+      // targetCenterSVG + targetRotation = 0 (mod 360) => targetRotation = -targetCenterSVG (mod 360)
+      let targetRotation = (-targetCenterSVG) % 360;
+      if (targetRotation < 0) targetRotation += 360;
+
+      // Current visual rotation (synced after previous spin)
+      const currentVisual = currentAngle % 360;
+
+      // Delta from current to target
+      let delta = (targetRotation - currentVisual) % 360;
+      if (delta < 0) delta += 360;
+
+      // Add 5-8 full rotations for spinning effect
+      const extraRotations = 5 + Math.random() * 3;
+      const finalAngle = currentAngle + delta + extraRotations * 360;
+
+      // Debug
+      console.log('Spin:', { targetIndex, targetCenterSVG, targetRotation, currentVisual, delta, finalAngle, count, anglePer });
+
+      // Set transition, then animate
+      wheel.style.transition = 'transform 4s cubic-bezier(0.17, 0.67, 0.12, 0.99)';
+      requestAnimationFrame(() => {
+        wheel.style.transform = `rotate(${finalAngle}deg)`;
+        currentAngle = finalAngle % 360;
+      });
+
+      setTimeout(() => {
+        const selected = items[targetIndex];
+        // Debug: show computed values
+        const dbg = `idx:${targetIndex} svg:${targetCenterSVG.toFixed(1)}° rot:${targetRotation.toFixed(1)}°`;
+        resultEl.textContent = `${selected}  [${dbg}]`;
+        lastSelectedIndex = targetIndex;
+
+        // Snap wheel to exact target rotation (without extra spins) so visual matches state
+        wheel.style.transition = 'none';
+        wheel.style.transform = `rotate(${targetRotation}deg)`;
+        currentAngle = targetRotation;
+
+        if (mode === 'unique') {
+          if (items.length <= 1) {
+            spinBtn.disabled = true;
+            resultEl.textContent += ' — Last item';
+          } else {
+            spinBtn.disabled = false;
+          }
+        } else {
+          spinBtn.disabled = false;
+        }
+        spinning = false;
+      }, 4000);
+    }
+
+    spinBtn.addEventListener('click', spin);
+    startSpinBtn.addEventListener('click', () => {
+      buildWheel();
+      currentAngle = 0;
+      wheel.style.transition = 'none';
+      wheel.style.transform = 'rotate(0deg)';
+      // Force reflow to ensure transition is cleared
+      wheel.offsetHeight;
+      spinBtn.disabled = items.length === 0;
+      showScreen(wheelScreen);
+    });
+
+    // Clear all button
+    document.getElementById('clear-all-btn').addEventListener('click', () => {
+      items = [];
+      lastSelectedIndex = null;
+      renderItems();
+      updateStartButton();
+    });
+
+    // Navigation
+    backToMode.addEventListener('click', () => {
+      lastSelectedIndex = null;
+      showScreen(modeScreen);
+    });
+    backToConfig.addEventListener('click', () => {
+      lastSelectedIndex = null;
+      showScreen(configScreen);
+    });
+
+    function showScreen(screen) {
+      document.querySelectorAll('.screen').forEach(s => s.classList.remove('active'));
+      screen.classList.add('active');
+    }
+
+    function escapeHtml(text) {
+      const div = document.createElement('div');
+      div.textContent = text;
+      return div.innerHTML;
+    }
+  </script>
+</body>
+</html>
